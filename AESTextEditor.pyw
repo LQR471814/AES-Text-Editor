@@ -4,6 +4,7 @@ import wx.lib.newevent as WxNewevent
 import os
 
 finishedText, EVT_FIN_TEXT = WxNewevent.NewEvent()
+decryptFinishedText, EVT_DEC_FIN_TEXT = WxNewevent.NewEvent()
 
 class EncryptionFrame(wx.Frame):
     def __init__(self):
@@ -39,6 +40,8 @@ class DecryptionFrame(wx.Frame):
     def __init__(self):
         wx.Frame.__init__(self, None, title="Decrypt", pos=(70, 70), size=(680, 420))
 
+        self.Bind(wx.EVT_CLOSE, self.OnClose)
+
         wildcard = "Encrypted File (*.enc)|*.enc|"     \
                 "All files (*.*)|*.*"
 
@@ -54,14 +57,14 @@ class DecryptionFrame(wx.Frame):
 
         choice = dlg.ShowModal()
 
-        path = dlg.GetPath()
+        self.path = dlg.GetPath()
         dlg.Destroy()
 
         if choice == wx.ID_CANCEL:
             self.Destroy()
             return
 
-        fObj = open(path, "r")
+        fObj = open(self.path, "r")
         f = fObj.read()
 
         while True:
@@ -79,17 +82,41 @@ class DecryptionFrame(wx.Frame):
             key = dlg1.GetValue()
 
             try:
-                decryptedText = aes.decrypt(key, f)
+                self.decryptedText = aes.decrypt(key, f)
+                if self.decryptedText[0] == "\n":
+                    self.decryptedText = self.decryptedText[1:]
                 dlg1.Destroy()
                 break
             except:
                 dlg2 = wx.MessageDialog(self, 'Incorrect Password!', 'Error', wx.ICON_ERROR | wx.OK)
 
-        self.textInp = wx.TextCtrl(self, -1, decryptedText, size=(680, 420), style=wx.TE_MULTILINE|wx.TE_PROCESS_ENTER|wx.TE_READONLY)
+        self.textInp = wx.TextCtrl(self, -1, self.decryptedText, size=(680, 420), style=wx.TE_MULTILINE|wx.TE_PROCESS_ENTER)
 
         self.textInp.SetInsertionPoint(0)
 
+    def OnClose(self, event):
+        global frame
 
+        dlg = wx.MessageDialog(self, 'Confirmation?',
+                            'Are you sure you are finished?', wx.ICON_QUESTION | wx.YES_NO | wx.YES_DEFAULT | wx.CANCEL)
+        result = dlg.ShowModal()
+        if result == wx.ID_CANCEL:
+            self.Destroy()
+            return
+        if result == wx.ID_YES:
+            finalText = ""
+            for i in range(self.textInp.GetNumberOfLines()):
+                finalText = finalText + "\n" + self.textInp.GetLineText(i)
+            if finalText[0] == "\n":
+                finalText = finalText[1:]
+            if finalText == self.decryptedText:
+                self.Destroy()
+                return
+            finEvent = decryptFinishedText(content=finalText, path=self.path)
+            wx.PostEvent(frame, finEvent)
+            self.Destroy()
+
+        dlg.Destroy()
 
 class MainBox(wx.Frame):
     def __init__(self, title):
@@ -105,6 +132,7 @@ class MainBox(wx.Frame):
         encryptButton.Bind(wx.EVT_BUTTON, self.OnButtonEncrypt)
         decryptButton.Bind(wx.EVT_BUTTON, self.OnButtonDecrypt)
         self.Bind(EVT_FIN_TEXT, self.StartEncryption)
+        self.Bind(EVT_DEC_FIN_TEXT, self.StartSaveEncryption)
         panel.Layout()
 
     def OnKeyDown(self, event):
@@ -116,6 +144,34 @@ class MainBox(wx.Frame):
         encryptFrame = EncryptionFrame()
         encryptFrame.SetIcon(wx.Icon(ROOT_DIR + "EncryptIcon.ico"))
         encryptFrame.Show(True)
+
+    def StartSaveEncryption(self, event):
+        wildcard = "Encrypted File (*.enc)|*.enc|"     \
+                "All files (*.*)|*.*"
+
+        dlg = wx.TextEntryDialog(
+                self, 'Enter a key you wish to encrypt the text with.',
+                'Input', '', style=wx.OK | wx.CANCEL | wx.TE_PASSWORD)
+
+        val = dlg.ShowModal()
+
+        if val == wx.ID_CANCEL:
+            dlg.Destroy()
+            return
+
+        key = dlg.GetValue()
+
+        dlg.Destroy()
+
+        encText = aes.encrypt(key, event.content)
+
+        fObj = open(event.path, "w")
+        fObj.write(encText)
+
+        dlg2 = wx.MessageDialog(self, 'File written at ' + event.path, 'Done', wx.ICON_INFORMATION | wx.OK)
+
+        dlg2.ShowModal()
+        dlg2.Destroy()
 
     def StartEncryption(self, event):
         wildcard = "Encrypted File (*.enc)|*.enc|"     \
